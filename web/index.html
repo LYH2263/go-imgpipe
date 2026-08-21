@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>go-imgpipe · imgd</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --text: #e7ecf3;
+      --muted: #8b9bb4;
+      --accent: #3d9cf0;
+      --ok: #3ecf8e;
+      --border: #2a3548;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: "Segoe UI", "PingFang SC", sans-serif;
+      background: radial-gradient(1200px 600px at 10% -10%, #1e3a5f 0%, var(--bg) 55%);
+      color: var(--text); min-height: 100vh;
+    }
+    header {
+      padding: 1.5rem 2rem 0.5rem; border-bottom: 1px solid var(--border);
+    }
+    header h1 { margin: 0; font-size: 1.4rem; letter-spacing: 0.02em; }
+    header p { margin: 0.4rem 0 1rem; color: var(--muted); font-size: 0.95rem; }
+    main {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;
+      padding: 1.25rem 2rem 2rem; max-width: 1100px;
+    }
+    @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+    section {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1rem 1.1rem;
+    }
+    section h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+    label { display: block; font-size: 0.8rem; color: var(--muted); margin: 0.6rem 0 0.25rem; }
+    input[type="text"], input[type="number"], select {
+      width: 100%; padding: 0.45rem 0.55rem; border-radius: 6px;
+      border: 1px solid var(--border); background: #121a24; color: var(--text);
+    }
+    input[type="file"] { margin-top: 0.35rem; color: var(--muted); }
+    .row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+    .row > * { flex: 1; min-width: 120px; }
+    button {
+      margin-top: 0.9rem; background: var(--accent); color: #041018;
+      border: 0; border-radius: 6px; padding: 0.55rem 1rem; font-weight: 600; cursor: pointer;
+    }
+    button:hover { filter: brightness(1.08); }
+    pre {
+      background: #121a24; border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.75rem; overflow: auto; font-size: 0.78rem; max-height: 220px;
+    }
+    img.preview {
+      max-width: 100%; border-radius: 6px; border: 1px solid var(--border);
+      background: #000; margin-top: 0.5rem;
+    }
+    .pill { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px;
+      background: #243247; color: var(--ok); font-size: 0.75rem; margin-right: 0.35rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>go-imgpipe · 图片变换流水线</h1>
+    <p>上传图片，试跑缩放 / 裁剪 / 旋转，查看缓存键与命中。默认端口 <strong>:8111</strong></p>
+  </header>
+  <main>
+    <section>
+      <h2>变换试跑</h2>
+      <label>图片文件</label>
+      <input id="file" type="file" accept="image/jpeg,image/png,image/gif" />
+      <div class="row">
+        <div>
+          <label>变换链（| 分隔）</label>
+          <input id="t" type="text" value="scale:160x120:bilinear" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>输出格式</label>
+          <select id="format">
+            <option value="jpeg">jpeg</option>
+            <option value="png">png</option>
+          </select>
+        </div>
+        <div>
+          <label>JPEG 质量</label>
+          <input id="q" type="number" min="1" max="100" value="85" />
+        </div>
+      </div>
+      <label><input id="strip" type="checkbox" /> 剥离 EXIF</label>
+      <button id="run">运行变换</button>
+      <div id="meta" style="margin-top:0.75rem"></div>
+      <img id="out" class="preview" alt="结果预览" hidden />
+    </section>
+    <section>
+      <h2>管线状态</h2>
+      <button id="refresh" type="button">刷新 Stats</button>
+      <pre id="stats">加载中…</pre>
+      <h2 style="margin-top:1rem">缓存键</h2>
+      <pre id="keys">—</pre>
+    </section>
+  </main>
+  <script>
+    async function refresh() {
+      const s = await fetch('/api/stats').then(r => r.json());
+      document.getElementById('stats').textContent = JSON.stringify(s, null, 2);
+      const k = await fetch('/api/cache/keys').then(r => r.json());
+      document.getElementById('keys').textContent = JSON.stringify(k, null, 2);
+    }
+    document.getElementById('refresh').onclick = refresh;
+    document.getElementById('run').onclick = async () => {
+      const f = document.getElementById('file').files[0];
+      if (!f) { alert('请选择图片'); return; }
+      const fd = new FormData();
+      fd.append('file', f);
+      const t = document.getElementById('t').value;
+      const format = document.getElementById('format').value;
+      const q = document.getElementById('q').value;
+      const strip = document.getElementById('strip').checked ? '1' : '0';
+      const url = `/api/transform?t=${encodeURIComponent(t)}&format=${format}&q=${q}&strip_exif=${strip}&meta=1`;
+      const res = await fetch(url, { method: 'POST', body: fd });
+      if (!res.ok) { alert(await res.text()); return; }
+      const j = await res.json();
+      document.getElementById('meta').innerHTML =
+        `<span class="pill">${j.cache_hit ? 'HIT' : 'MISS'}</span>` +
+        `<span class="pill">${j.width}×${j.height}</span>` +
+        `<div style="margin-top:0.4rem;font-size:0.8rem;color:#8b9bb4;word-break:break-all">key: ${j.cache_key}</div>`;
+      const img = document.getElementById('out');
+      img.src = 'data:image/' + j.format + ';base64,' + j.preview_b64;
+      img.hidden = false;
+      refresh();
+    };
+    refresh();
+  </script>
+</body>
+</html>
