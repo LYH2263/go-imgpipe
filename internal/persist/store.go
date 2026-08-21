@@ -140,12 +140,19 @@ func (s *Store) Put(e *Entry) error {
 	return nil
 }
 
-func writeEntryFile(path string, e *Entry, syncOn bool) error {
+func writeEntryFile(path string, e *Entry, syncOn bool) (retErr error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	// On the error path close the fd we opened; on success we Close
+	// explicitly below, so the defer is a no-op there (retErr is nil).
+	// This avoids double-close, which would race against fd reuse.
+	defer func() {
+		if retErr != nil {
+			_ = f.Close()
+		}
+	}()
 	// simple binary: magic + dims + pixels len + pixels + raw len + raw
 	if _, err := f.Write([]byte("IPB1")); err != nil {
 		return err
@@ -168,13 +175,17 @@ func writeEntryFile(path string, e *Entry, syncOn bool) error {
 		return err
 	}
 
-	if err := f.Close(); err != nil {
-		return err
-	}
+	// Order matters: fsync the data while the fd is still open, THEN close.
+	// Syncing after Close raced against fd reuse and surfaced as spurious
+	// "file already closed" Put failures. The caller does the Rename (making
+	// the file externally visible) only after this returns nil.
 	if syncOn {
 		if err := f.Sync(); err != nil {
 			return err
 		}
+	}
+	if err := f.Close(); err != nil {
+		return err
 	}
 	return nil
 }
