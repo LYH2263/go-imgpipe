@@ -135,7 +135,7 @@ func (p *Pipeline) RunContext(ctx context.Context, job Job) (*Result, error) {
 		p.metrics.Miss(int64(len(job.Raw)))
 	}
 
-	img, format, err := decode.Decode(context.Background(), raw)
+	img, format, err := decode.Decode(ctx, raw)
 	if err != nil {
 		p.metrics.DecodeError()
 		return nil, err
@@ -222,7 +222,7 @@ func (p *Pipeline) encodeFrame(ctx context.Context, fr *Frame, enc EncodeOptions
 	}
 	rgba := fr.AsRGBA()
 
-	return p.encoders.Encode(context.Background(), string(format), rgba, quality)
+	return p.encoders.Encode(ctx, string(format), rgba, quality)
 }
 
 func applyTransform(fr *Frame, spec TransformSpec) (*Frame, error) {
