@@ -50,6 +50,15 @@ func (r *Registry) Lookup(format string) (Encoder, error) {
 }
 
 // Encode dispatches to the registered encoder and respects ctx cancellation.
+//
+// The encoder runs in its own goroutine because the stdlib jpeg/png encoders
+// do not honor a context. Encode therefore cannot interrupt the in-flight work,
+// but it MUST unblock the caller as soon as ctx is canceled — otherwise a
+// disconnecting client leaves the serving goroutine stuck in <-ch until the
+// encoder finishes, which backs up the thumbnail queue. We select on ctx.Done
+// alongside the result channel so a cancel returns immediately; the encoder
+// goroutine finishes in the background and writes to the buffered channel,
+// preventing a goroutine leak.
 func (r *Registry) Encode(ctx context.Context, format string, img image.Image, quality int) ([]byte, error) {
 	enc, err := r.Lookup(format)
 	if err != nil {
@@ -65,9 +74,13 @@ func (r *Registry) Encode(ctx context.Context, format string, img image.Image, q
 		b, err := enc(ctx, img, quality)
 		ch <- result{b, err}
 	}()
-	_ = WaitWithContext(ctx, 30*time.Millisecond)
-	res := <-ch
-	return res.b, res.err
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-ch:
+		return res.b, res.err
+	}
 }
 
 func EncodeJPEG(ctx context.Context, img image.Image, quality int) ([]byte, error) {
@@ -98,10 +111,17 @@ func EncodePNG(ctx context.Context, img image.Image, quality int) ([]byte, error
 	return buf.Bytes(), nil
 }
 
-// WaitWithContext waits up to d or until ctx done.
+// WaitWithContext waits up to d or until ctx is canceled, whichever comes first.
+// It never uses time.Sleep, which would block past cancellation and starve the
+// thumbnail queue when a client disconnects mid-encode. Instead it selects on
+// the context's Done channel so a canceled ctx returns immediately.
 func WaitWithContext(ctx context.Context, d time.Duration) error {
-
-	_ = ctx
-	time.Sleep(d)
-	return nil
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }

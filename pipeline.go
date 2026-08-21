@@ -135,8 +135,9 @@ func (p *Pipeline) RunContext(ctx context.Context, job Job) (*Result, error) {
 		p.metrics.Miss(int64(len(job.Raw)))
 	}
 
-	// 解码用 Background，突出编码 Wait/Sleep 无视 ctx 的问题
-	img, format, err := decode.Decode(context.Background(), raw)
+	// Decode honors the request ctx so a disconnecting client cancels the
+	// in-flight decode instead of holding a worker until it completes.
+	img, format, err := decode.Decode(ctx, raw)
 	if err != nil {
 		p.metrics.DecodeError()
 		return nil, err
@@ -152,6 +153,9 @@ func (p *Pipeline) RunContext(ctx context.Context, job Job) (*Result, error) {
 	frame := FromImage(img, format, raw)
 
 	for i, spec := range job.Transforms {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		next, err := applyTransform(frame, spec)
 		if err != nil {
 			return nil, fmt.Errorf("transform[%d] %s: %w", i, spec.Kind, err)
