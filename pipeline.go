@@ -156,6 +156,11 @@ func (p *Pipeline) RunContext(ctx context.Context, job Job) (*Result, error) {
 	}
 	frame := FromImage(img, format, raw)
 
+	// Apply the full transform chain before touching the cache. Intermediate
+	// frames are never persisted: `key` represents the entire job (raw + all
+	// transforms + encode), so writing a partial result would poison the index
+	// with a half-success frame that survives a later transform failure and, if
+	// disk-backed, replays after restart. Only the final frame is stored.
 	for i, spec := range job.Transforms {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrCanceled, err)
@@ -165,10 +170,6 @@ func (p *Pipeline) RunContext(ctx context.Context, job Job) (*Result, error) {
 			return nil, fmt.Errorf("transform[%d] %s: %w", i, spec.Kind, err)
 		}
 		frame = next
-
-		if !job.SkipCache {
-			_ = p.cache.Put(key, frame)
-		}
 	}
 
 	if !job.SkipCache {

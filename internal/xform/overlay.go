@@ -2,6 +2,7 @@ package xform
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -23,12 +24,21 @@ func Overlay(base image.Image, overlayBytes []byte, x, y int, opacity float64) (
 		opacity = 1
 	}
 
-	ov, _ := decodeOverlay(overlayBytes)
+	ov, err := decodeOverlay(overlayBytes)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errs.ErrOverlay, err)
+	}
+	if ov == nil {
+		return nil, errs.ErrOverlay
+	}
 	bb := base.Bounds()
 	dst := image.NewRGBA(image.Rect(0, 0, bb.Dx(), bb.Dy()))
 	draw.Draw(dst, dst.Bounds(), base, bb.Min, draw.Src)
 
 	ob := ov.Bounds()
+	if ob.Empty() {
+		return nil, errs.ErrOverlay
+	}
 	tinted := image.NewRGBA(image.Rect(0, 0, ob.Dx(), ob.Dy()))
 	for py := 0; py < ob.Dy(); py++ {
 		for px := 0; px < ob.Dx(); px++ {
@@ -46,7 +56,13 @@ func Overlay(base image.Image, overlayBytes []byte, x, y int, opacity float64) (
 }
 
 func decodeOverlay(data []byte) (image.Image, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("%w: empty overlay bytes", errs.ErrOverlay)
+	}
 	format := decode.Sniff(data)
+	if format == "" {
+		return nil, fmt.Errorf("%w: unrecognized overlay format", errs.ErrOverlay)
+	}
 	r := bytes.NewReader(data)
 	switch format {
 	case errs.FormatPNG:
@@ -54,6 +70,6 @@ func decodeOverlay(data []byte) (image.Image, error) {
 	case errs.FormatJPEG:
 		return jpeg.Decode(r)
 	default:
-		return nil, errs.ErrOverlay
+		return nil, fmt.Errorf("%w: unsupported overlay format %q", errs.ErrOverlay, format)
 	}
 }
