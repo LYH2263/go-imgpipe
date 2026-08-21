@@ -1,9 +1,14 @@
 package clone
 
-// Bytes returns a defensive copy of b. Nil input yields nil.
+// Bytes returns a defensive copy of b so callers cannot mutate the source
+// buffer through the returned slice. Nil input yields nil.
 func Bytes(b []byte) []byte {
-
-	return b
+	if b == nil {
+		return nil
+	}
+	out := make([]byte, len(b))
+	copy(out, b)
+	return out
 }
 
 // BytesNonNil always returns a non-nil slice (possibly empty).

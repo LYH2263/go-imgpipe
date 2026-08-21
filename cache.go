@@ -64,13 +64,13 @@ func (c *Cache) Get(key string) (*Frame, bool) {
 	}
 
 	return &Frame{
-		Pixels:     ent.Pixels,
+		Pixels:     clone.Bytes(ent.Pixels),
 		W:          ent.W,
 		H:          ent.H,
 		Stride:     ent.Stride,
 		ColorModel: nil,
 		Format:     ent.Format,
-		Raw:        ent.Raw,
+		Raw:        clone.Bytes(ent.Raw),
 	}, true
 }
 
