@@ -34,6 +34,12 @@ func (c *Cache) Put(key string, frame *Frame) error {
         }
         c.pipe.mu.Lock()
         defer c.pipe.mu.Unlock()
+        // Recheck under the lock: Close may have torn down the pipeline between
+        // the lock-free Closed() fast-path above and here. Writing into a
+        // half-closed pipeline is the mem.Put null-deref crash path.
+        if c.pipe.Closed() {
+                return ErrClosed
+        }
         if c.pipe.disk != nil {
                 if err := c.pipe.disk.Put(entry); err != nil {
                         return err
@@ -110,6 +116,9 @@ func (c *Cache) Delete(key string) error {
         }
         c.pipe.mu.Lock()
         defer c.pipe.mu.Unlock()
+        if c.pipe.Closed() {
+                return ErrClosed
+        }
         c.pipe.mem.Delete(key)
         if c.pipe.disk != nil {
                 return c.pipe.disk.Delete(key)

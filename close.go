@@ -26,8 +26,13 @@ func (p *Pipeline) Close() error {
 		p.disk = nil
 	}
 
-	p.mem = nil
-	p.encoders = nil
+	// Drop in-memory cache entries (they hold pixel buffers) but keep the
+	// mem/encoders/metrics objects themselves live. A Run already past the
+	// Closed gate may still dereference p.mem or p.encoders after we return;
+	// nil-ing them here is the null-pointer panic through mem.Put. Clearing
+	// the index frees the buffers without pulling the rug out from under any
+	// in-flight request.
+	p.mem.Clear()
 	p.metrics.SetClosed(true)
 	return first
 }

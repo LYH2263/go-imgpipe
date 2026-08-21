@@ -92,6 +92,9 @@ func (p *Pipeline) RunContext(ctx context.Context, job Job) (*Result, error) {
 	if p == nil {
 		return nil, ErrNilPipeline
 	}
+	if p.Closed() {
+		return nil, ErrClosed
+	}
 
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrCanceled, err)
