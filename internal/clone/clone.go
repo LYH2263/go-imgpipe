@@ -1,9 +1,19 @@
 package clone
 
 // Bytes returns a defensive copy of b. Nil input yields nil.
+//
+// The copy is essential: callers use it to sever aliasing between a caller-owned
+// input buffer and pipeline-owned frames/cache entries. Returning b unchanged
+// would let an external mutation (e.g. zeroing the upload buffer after Run)
+// bleed into Result.Frame.Raw and the in-memory cache entry through a shared
+// backing array.
 func Bytes(b []byte) []byte {
-
-	return b
+	if b == nil {
+		return nil
+	}
+	out := make([]byte, len(b))
+	copy(out, b)
+	return out
 }
 
 // BytesNonNil always returns a non-nil slice (possibly empty).
