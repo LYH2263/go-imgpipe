@@ -126,9 +126,10 @@ func (s *Store) Put(e *Entry) error {
 		return err
 	}
 	if err := os.Rename(tmp, final); err != nil {
+		// rename failed: no durable blob exists, so the index must NOT be
+		// updated — otherwise Has would report a phantom hit for a key
+		// whose .bin never landed on disk (e.g. blobs/<key>.bin is a dir).
 		_ = os.Remove(tmp)
-
-		s.index[e.Key] = name
 		return err
 	}
 	rec := journalRec{Op: "put", Key: e.Key, File: name, W: e.W, H: e.H}

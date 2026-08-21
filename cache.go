@@ -36,8 +36,9 @@ func (c *Cache) Put(key string, frame *Frame) error {
 	defer c.pipe.mu.Unlock()
 	if c.pipe.disk != nil {
 		if err := c.pipe.disk.Put(entry); err != nil {
-
-			c.pipe.mem.Put(key, entry)
+			// disk write failed: do not pollute the memory index — otherwise
+			// a later Has/Get would falsely report a cache hit for a key
+			// that was never persisted.
 			return err
 		}
 	}
