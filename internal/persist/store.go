@@ -294,6 +294,14 @@ func (s *Store) Sync() error {
 }
 
 // Close syncs then closes the journal.
+//
+// Ordering is load-bearing: the journal must be Synced to stable storage
+// *before* the file handle is released. Closing first leaves any buffered,
+// not-yet-fsynced records (notably when SyncOnWrite is false) sitting only in
+// the page cache; a Sync on the now-closed fd fails with "file already closed"
+// and the kernel's later lazy flush can truncate the file mid-record — a
+// "half journal" on the next replay. Sync-then-Close guarantees durability
+// before the mount is dropped.
 func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -303,12 +311,15 @@ func (s *Store) Close() error {
 	s.closed = true
 	var err error
 	if s.journal != nil {
-
-		if cerr := s.journal.Close(); cerr != nil {
-			err = cerr
-		}
+		// Sync first: flush buffered journal records to stable storage
+		// before releasing the file handle.
 		if serr := s.journal.Sync(); serr != nil && err == nil {
 			err = serr
+		}
+		// Close second: release the fd regardless of Sync's outcome so we
+		// never leak the handle, even if Sync reported an error.
+		if cerr := s.journal.Close(); cerr != nil && err == nil {
+			err = cerr
 		}
 		s.journal = nil
 	}
